@@ -3,22 +3,41 @@ record_video: yes
 
 environment:
   render: True
-  num_envs: 100
-  eval_every_n: 200
+  num_envs: 200
+  eval_every_n: 50
   num_threads: 30
   simulation_dt: 0.0025
   control_dt: 0.01
-  max_time: 4.0
+  max_time: 4
   action_std: 0.1
   reward:
-    forwardVel:
+    a_forwardVel:
+      coeff: -1e-3
+    b_torque:
+      coeff: -2e-6
+    c_safety:
+      coeff: -0.4
+    d_fight:
+      coeff: 20 #50
+    e_relative:
+      coeff: 7
+    f_smooth:
+      coeff: -2e-4
+    g_survive:
+      coeff: 0
+    h_distance:
+      coeff: -0.2
+    i_rpy:
       coeff: 0.3
-    torque:
-      coeff: -4e-5
+    j_rDiff:
+      coeff: -28
+    k_closeStrategy:
+      coeff: 5
 
 evaluation:
   iteration: 10000 #Write your final submit policy iteration. ex) if you submit full_10000.pt
 
 architecture:
-  policy_net: [128, 128]
-  value_net: [128, 128]
+  policy_net: [512, 128]
+  value_net:  [512, 128]
+  oppo_policy_net: [256, 128]

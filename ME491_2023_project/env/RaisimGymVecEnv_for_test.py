@@ -21,7 +21,13 @@ class RaisimGymVecEnv:
         self.num_obs = self.wrapper.getObDim()
         self.num_acts = self.wrapper.getActionDim()
         self._observation = np.zeros([self.num_envs, self.num_obs], dtype=np.float32)
+        self._observationO = np.zeros([self.num_envs, self.num_obs], dtype=np.float32)
         self.obs_rms = RunningMeanStd(shape=[self.num_envs, self.num_obs])
+        self.meanO = np.zeros(self.num_obs, dtype=np.float32)
+        self.varO = np.zeros(self.num_obs, dtype=np.float32)
+        self.count = 0.0
+        self.mean = np.zeros(self.num_obs, dtype=np.float32)
+        self.var = np.zeros(self.num_obs, dtype=np.float32)
 
     def seed(self, seed=None):
         self.wrapper.setSeed(seed)
@@ -43,13 +49,25 @@ class RaisimGymVecEnv:
 
     def step(self, action):
         self.wrapper.step(action)
+        
+    def step2(self, action, actionO):
+        self.wrapper.step2(action, actionO)
+
 
     def load_scaling(self, dir_name, iteration, count=1e5):
         mean_file_name = dir_name + "/mean" + str(iteration) + ".csv"
         var_file_name = dir_name + "/var" + str(iteration) + ".csv"
-        self.obs_rms.count = count
-        self.obs_rms.mean = np.loadtxt(mean_file_name, dtype=np.float32)
-        self.obs_rms.var = np.loadtxt(var_file_name, dtype=np.float32)
+        self.count = count
+        self.mean = np.loadtxt(mean_file_name, dtype=np.float32)
+        self.var = np.loadtxt(var_file_name, dtype=np.float32)
+        self.wrapper.setObStatistics(self.mean, self.var, self.count)
+        
+    def load_scalingO(self, dir_name, iteration, count=1e5):
+        mean_file_name = dir_name + "/mean" + str(iteration) + ".csv"
+        var_file_name = dir_name + "/var" + str(iteration) + ".csv"
+        self.meanO = np.loadtxt(mean_file_name, dtype=np.float32)
+        self.varO = np.loadtxt(var_file_name, dtype=np.float32)
+        self.wrapper.setObOStatistics(self.meanO, self.varO, count)
 
     def save_scaling(self, dir_name, iteration):
         mean_file_name = dir_name + "/mean" + iteration + ".csv"
@@ -68,6 +86,11 @@ class RaisimGymVecEnv:
         else:
             return self._observation.copy()
 
+
+    def observe2(self):
+        self.wrapper.observe2(self._observationO)
+        return self._observationO
+    
     def reset(self):
         self._reward = np.zeros(self.num_envs, dtype=np.float32)
         self.wrapper.reset()

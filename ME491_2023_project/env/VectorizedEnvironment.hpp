@@ -52,13 +52,13 @@ class VectorizedEnvironment {
     for (int i = 0; i < num_envs_; i++) {
       // only the first environment is visualized
       environments_[i]->init();
-      environments_[i]->reset();
     }
 
     obDim_ = environments_[0]->getObDim();
     actionDim_ = environments_[0]->getActionDim();
     RSFATAL_IF(obDim_ == 0 || actionDim_ == 0, "Observation/Action dimension must be defined in the constructor of each environment!")
-
+    
+    mode_.setOnes(num_envs_);
     /// ob scaling
     if (normalizeObservation_) {
       obMean_.setZero(obDim_);
@@ -76,6 +76,12 @@ class VectorizedEnvironment {
     for (auto env: environments_)
       env->reset();
   }
+  // resets all environments and returns observation
+  void reset2(Eigen::Ref<EigenBoolVec> &mode){
+    mode_ = mode;
+    for(int i = 0; i < num_envs_; i++)
+      environments_[i]->reset2(mode(i));  
+  }
 
   void observe(Eigen::Ref<EigenRowMajorMat> &ob, bool updateStatistics) {
 #pragma omp parallel for schedule(auto)
@@ -86,13 +92,34 @@ class VectorizedEnvironment {
       updateObservationStatisticsAndNormalize(ob, updateStatistics);
   }
 
+  void observe2(Eigen::Ref<EigenRowMajorMat> &obO) {
+#pragma omp parallel for schedule(auto)
+    for (int i = 0; i < num_envs_; i++)
+      environments_[i]->observe2(obO.row(i));
+
+    if (normalizeObservation_){
+      updateOppoObservationStatisticsAndNormalize(obO);
+    }
+  }
+
 
   void step(Eigen::Ref<EigenRowMajorMat> &action,
             Eigen::Ref<EigenVec> &reward,
-            Eigen::Ref<EigenBoolVec> &done) {
+            Eigen::Ref<EigenBoolVec> &done,
+            Eigen::Ref<EigenBoolVec> &win) {
 #pragma omp parallel for schedule(auto)
     for (int i = 0; i < num_envs_; i++)
-      perAgentStep(i, action, reward, done);
+      perAgentStep(i, action, reward, done, win);
+  }
+
+  void step2(Eigen::Ref<EigenRowMajorMat> &action,
+             Eigen::Ref<EigenRowMajorMat> &actionO,
+             Eigen::Ref<EigenVec> &reward,
+             Eigen::Ref<EigenBoolVec> &done,
+            Eigen::Ref<EigenBoolVec> &win) {
+#pragma omp parallel for schedule(auto)
+    for (int i = 0; i < num_envs_; i++)
+      perAgentStep2(i, action, actionO, reward, done, win);
   }
 
   void turnOnVisualization() { if(render_) environments_[0]->turnOnVisualization(); }
@@ -103,6 +130,8 @@ class VectorizedEnvironment {
     mean = obMean_; var = obVar_; count = obCount_; }
   void setObStatistics(Eigen::Ref<EigenVec> &mean, Eigen::Ref<EigenVec> &var, float count) {
     obMean_ = mean; obVar_ = var; obCount_ = count; }
+  void setObOStatistics(Eigen::Ref<EigenVec> &mean, Eigen::Ref<EigenVec> &var, float count) {
+    obMeanO_ = mean; obVarO_ = var; obCountO_ = count; }
 
   void setSeed(int seed) {
     int seed_inc = seed;
@@ -168,19 +197,49 @@ class VectorizedEnvironment {
       ob.row(i) = (ob.row(i) - obMean_.transpose()).template cwiseQuotient<>((obVar_ + epsilon).cwiseSqrt().transpose());
   }
 
+  void updateOppoObservationStatisticsAndNormalize(Eigen::Ref<EigenRowMajorMat> &ob) {
+#pragma omp parallel for schedule(auto)
+    for(int i=0; i<num_envs_; i++)
+      ob.row(i) = (ob.row(i) - obMeanO_.transpose()).template cwiseQuotient<>((obVarO_ + epsilon).cwiseSqrt().transpose());
+  }
+
   inline void perAgentStep(int agentId,
                            Eigen::Ref<EigenRowMajorMat> &action,
                            Eigen::Ref<EigenVec> &reward,
-                           Eigen::Ref<EigenBoolVec> &done) {
+                           Eigen::Ref<EigenBoolVec> &done,
+                           Eigen::Ref<EigenBoolVec> &win) {
     reward[agentId] = environments_[agentId]->step(action.row(agentId));
     rewardInformation_[agentId] = environments_[agentId]->getRewards().getStdMap();
 
     float terminalReward = 0;
     done[agentId] = environments_[agentId]->isTerminalState(terminalReward);
+    win[agentId] = false;
 
     if (done[agentId]) {
       environments_[agentId]->reset();
       reward[agentId] += terminalReward;
+      if(terminalReward > -7) win[agentId] = true;
+    }
+  }
+
+  inline void perAgentStep2(int agentId,
+                           Eigen::Ref<EigenRowMajorMat> &action,
+                           Eigen::Ref<EigenRowMajorMat> &actionO,
+                           Eigen::Ref<EigenVec> &reward,
+                           Eigen::Ref<EigenBoolVec> &done,
+                           Eigen::Ref<EigenBoolVec> &win) {
+    reward[agentId] = environments_[agentId]->step2(action.row(agentId), actionO.row(agentId));
+    rewardInformation_[agentId] = environments_[agentId]->getRewards().getStdMap();
+
+    float terminalReward = 0;
+    done[agentId] = environments_[agentId]->isTerminalState(terminalReward);
+
+    win[agentId] = false;
+    
+    if (done[agentId]) {
+      environments_[agentId]->reset2(mode_[agentId]);
+      reward[agentId] += terminalReward;
+      if(terminalReward > -4.8) win[agentId] = true;
     }
   }
 
@@ -196,11 +255,13 @@ class VectorizedEnvironment {
 
   /// observation running mean
   bool normalizeObservation_ = true;
-  EigenVec obMean_;
-  EigenVec obVar_;
+  EigenVec obMean_, obMeanO_;
+  EigenVec obVar_, obVarO_;
   float obCount_ = 1e-4;
+  float obCountO_ = 1e-4;
   EigenVec recentMean_, recentVar_, delta_;
   EigenVec epsilon;
+  EigenBoolVec mode_;
 };
 
 

@@ -19,15 +19,20 @@ class RaisimGymVecEnv:
         self.num_obs = self.wrapper.getObDim()
         self.num_acts = self.wrapper.getActionDim()
         self._observation = np.zeros([self.num_envs, self.num_obs], dtype=np.float32)
+        self._observationO = np.zeros([self.num_envs, self.num_obs], dtype=np.float32)
         self.actions = np.zeros([self.num_envs, self.num_acts], dtype=np.float32)
+        self.actionsO = np.zeros([self.num_envs, self.num_acts], dtype=np.float32)
         self.log_prob = np.zeros(self.num_envs, dtype=np.float32)
         self._reward = np.zeros(self.num_envs, dtype=np.float32)
         self._done = np.zeros(self.num_envs, dtype=bool)
+        self._win = np.zeros(self.num_envs, dtype=bool)
         self.rewards = [[] for _ in range(self.num_envs)]
         self.wrapper.setSeed(seed)
         self.count = 0.0
         self.mean = np.zeros(self.num_obs, dtype=np.float32)
         self.var = np.zeros(self.num_obs, dtype=np.float32)
+        self.meanO = np.zeros(self.num_obs, dtype=np.float32)
+        self.varO = np.zeros(self.num_obs, dtype=np.float32)
 
     def seed(self, seed=None):
         self.wrapper.setSeed(seed)
@@ -45,8 +50,12 @@ class RaisimGymVecEnv:
         self.wrapper.stopRecordingVideo()
 
     def step(self, action):
-        self.wrapper.step(action, self._reward, self._done)
-        return self._reward.copy(), self._done.copy()
+        self.wrapper.step(action, self._reward, self._done, self._win)
+        return self._reward.copy(), self._done.copy(), self._win.copy()
+
+    def step2(self, action, actionO):
+        self.wrapper.step2(action, actionO, self._reward, self._done, self._win)
+        return self._reward.copy(), self._done.copy(), self._win.copy()
 
     def load_scaling(self, dir_name, iteration, count=1e5):
         mean_file_name = dir_name + "/mean" + str(iteration) + ".csv"
@@ -55,6 +64,18 @@ class RaisimGymVecEnv:
         self.mean = np.loadtxt(mean_file_name, dtype=np.float32)
         self.var = np.loadtxt(var_file_name, dtype=np.float32)
         self.wrapper.setObStatistics(self.mean, self.var, self.count)
+
+    def load_scalingO(self, dir_name, iteration):
+        mean_file_name = dir_name + "/mean" + str(iteration) + ".csv"
+        var_file_name = dir_name + "/var" + str(iteration) + ".csv"
+        self.meanO = np.loadtxt(mean_file_name, dtype=np.float32)
+        self.varO = np.loadtxt(var_file_name, dtype=np.float32)
+        self.wrapper.setObOStatistics(self.meanO, self.varO, self.count)
+
+    def no_scaling(self):
+        self.meanO = np.zeros(self.num_obs, dtype=np.float32)
+        self.varO = np.ones(self.num_obs, dtype=np.float32)
+        self.wrapper.setObOStatistics(self.meanO, self.varO, self.count)
 
     def save_scaling(self, dir_name, iteration):
         mean_file_name = dir_name + "/mean" + iteration + ".csv"
@@ -67,12 +88,22 @@ class RaisimGymVecEnv:
         self.wrapper.observe(self._observation, update_statistics)
         return self._observation
 
+    def observe2(self):
+        self.wrapper.observe2(self._observationO)
+        return self._observationO
+
     def get_reward_info(self):
         return self.wrapper.getRewardInfo()
 
     def reset(self):
         self._reward = np.zeros(self.num_envs, dtype=np.float32)
         self.wrapper.reset()
+
+    def reset2(self, mode=None):
+        if mode is None:
+            mode = np.ones(self.num_envs, dtype=np.bool)
+        self._reward = np.zeros(self.num_envs, dtype=np.float32)
+        self.wrapper.reset2(mode)
 
     def close(self):
         self.wrapper.close()

@@ -42,8 +42,10 @@ class ENVIRONMENT_for_test {
 
     controller_.setName(PLAYER1_NAME);
     controller_.setOpponentName(PLAYER2_NAME);
+    controller_.setPlayerNum(0);
     dummyController_.setName(PLAYER2_NAME);
     dummyController_.setOpponentName(PLAYER1_NAME);
+    dummyController_.setPlayerNum(1);
     ///////////////////////////////////////////////////////////////////////////////////////////////
 
     auto* ground = world_.addGround();
@@ -56,8 +58,9 @@ class ENVIRONMENT_for_test {
 
     /// visualize if it is the first environment
     if (visualizable_) {
+      const int port = 8080;
       server_ = std::make_unique<raisim::RaisimServer>(&world_);
-      server_->launchServer();
+      server_->launchServer(port);
       auto cage = server_->addVisualCylinder("cage", 3.0, 0.1);
       cage->setPosition(0,0,0);
     }
@@ -86,14 +89,30 @@ class ENVIRONMENT_for_test {
       world_.integrate();
       if (server_) server_->unlockVisualizationServerMutex();
     }
+  }
+
+  void step2(const Eigen::Ref<EigenVec> &action, const Eigen::Ref<EigenVec> &actionO) {
+    timer_++;
+    controller_.advance(&world_, action);
+    dummyController_.advance(&world_, actionO);
+    //
+    for (int i = 0; i < int(control_dt_ / simulation_dt_ + 1e-10); i++) {
+      if (server_) server_->lockVisualizationServerMutex();
+      world_.integrate();
+      if (server_) server_->unlockVisualizationServerMutex();
+    }
     controller_.updateObservation(&world_);
     dummyController_.updateObservation(&world_);
   }
 
   void observe(Eigen::Ref<EigenVec> ob) {
     controller_.updateObservation(&world_);
-    dummyController_.updateObservation(&world_);
     ob = controller_.getObservation().cast<float>();
+  }
+
+  void observe2(Eigen::Ref<EigenVec> obO) {
+    dummyController_.updateObservation(&world_);
+    obO = dummyController_.getObservation().cast<float>();
   }
 
   bool player1_die() {
@@ -166,7 +185,7 @@ class ENVIRONMENT_for_test {
       return true;
     }
 
-    if (terminal == 10) {
+    if (terminal == 20) {
       std::cout<<"finish!"<<"\t"<<"player1 win: "<<player1_win<<"\t"<<"player2 win: "<<player2_win<<"\t"<<"draw: "<<draw<<std::endl;
       std::cout<<"player1 get: "<<3 * player1_win + draw<<"\t"<<"player2 get: "<<3 * player2_win + draw<<std::endl;
       exit(0);
@@ -208,8 +227,8 @@ class ENVIRONMENT_for_test {
   int timer_ = 0;
   int player1_win = 0, player2_win = 0, draw = 0, terminal = 0;
   bool visualizable_ = false;
-  PLAYER1_CONTROLLER controller_;
-  PLAYER2_CONTROLLER dummyController_;
+  PLAYER1_CONTROLLER controller_, dummyController_;
+  // PLAYER2_CONTROLLER dummyController_;
   raisim::World world_;
   double simulation_dt_ = 0.001;
   double control_dt_ = 0.01;

@@ -79,6 +79,12 @@ class PPO:
             self.actions, self.actions_log_prob = self.actor.sample(torch.from_numpy(actor_obs).to(self.device))
         return self.actions
 
+
+    def just_act(self, actor_obs):
+        with torch.no_grad():
+            action, _ = self.actor.sample(torch.from_numpy(actor_obs).to(self.device))
+        return action
+
     def step(self, value_obs, rews, dones):
         self.storage.add_transitions(self.actor_obs, value_obs, self.actions, self.actor.action_mean, self.actor.distribution.std_np, rews, dones,
                                      self.actions_log_prob)

@@ -1,5 +1,8 @@
 ## ME 491 2023 project - Junhyeok Yoon
 
+### Video
+- https://youtu.be/JdBPHpgLShI
+
 ### Dependencies
 - raisim
 
